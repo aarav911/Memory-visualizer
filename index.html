@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Memory Visualizer — Fixed + RAII Example (single-file)</title>
+<style>
+  :root{
+    --bg:#0b1220; --card:#071426; --muted:#9fb4d1; --accent:#60a5fa; --accent-2:#7dd3fc;
+    --frame:#0f1724; --cell:#071226;
+  }
+  body{margin:0;font-family:Inter,Segoe UI,Roboto,system-ui,Arial;background:linear-gradient(180deg,#061226 0%,#051226 100%);color:#e6eef8}
+  header{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.03)}
+  header h1{margin:0;font-size:16px}
+  .container{display:flex;gap:12px;padding:12px;flex-wrap:wrap}
+  .left{width:360px;min-width:300px;background:rgba(255,255,255,0.02);border-radius:10px;padding:12px}
+  .right{flex:1;min-width:320px;background:rgba(255,255,255,0.02);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select, button, input {background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--accent);padding:8px;border-radius:8px}
+  button.play{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:none;color:#021427}
+  .area{display:flex;gap:12px}
+  .pane{flex:1;background:rgba(255,255,255,0.01);padding:10px;border-radius:8px;min-height:300px;position:relative;overflow:auto}
+  .title{color:var(--muted);font-size:13px;margin-bottom:8px}
+  .stackList{display:flex;flex-direction:column-reverse;gap:8px} /* top at top visually by reversing */
+  .frame{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:8px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.35);transform-origin:center;transition:transform .35s cubic-bezier(.2,.9,.2,1),opacity .25s}
+  .frame.frame-enter{transform:translateY(-12px) scale(0.98);opacity:0}
+  .frame .fhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .var{display:flex;justify-content:space-between;font-family:monospace;padding:6px;border-radius:6px;background:rgba(255,255,255,0.01);margin:6px 0;transition:background .25s,transform .25s}
+  .var.updated{background:rgba(96,165,250,0.06);transform:translateX(6px)}
+  .heapBlock{display:flex;justify-content:space-between;padding:8px;margin:8px 0;border-radius:8px;background:rgba(255,255,255,0.01);font-family:monospace}
+  .log{height:120px;overflow:auto;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;font-family:monospace}
+  #svgArrows{position:relative;height:120px;width:100%;overflow:visible}
+  .codeBox{background:#021227;padding:10px;border-radius:8px;font-family:monospace;font-size:13px;line-height:1.45;color:#cfefff;max-height:200px;overflow:auto}
+  .footer{color:var(--muted);font-size:13px}
+  .small{font-size:13px;color:var(--muted)}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+  .flexrow{display:flex;gap:8px;align-items:center}
+  @media(max-width:880px){.container{flex-direction:column}.left{width:auto}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Memory Visualizer — Fixed + RAII Example (single-file)</h1>
+  <div style="margin-left:auto;color:var(--muted);font-size:13px">Curated demo for TA application — fixed behavior</div>
+</header>
+
+<div class="container">
+  <div class="left">
+    <div class="title">Pick Example</div>
+    <div class="controls">
+      <select id="programSelect">
+        <option value="prog1">Prog 1 — pointers, functions, recursion</option>
+        <option value="prog2">Prog 2 — dynamic array, pointer arithmetic</option>
+        <option value="prog3">Prog 3 — RAII & smart pointers</option>
+      </select>
+      <button id="playBtn" class="play">Play</button>
+      <button id="pauseBtn" class="btn-ghost">Pause</button>
+      <button id="stepBack" class="btn-ghost">◀ Step</button>
+      <button id="stepFwd" class="btn-ghost">Step ▶</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="title">Source (.cpp)</div>
+      <div id="codeBox" class="codeBox"></div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="title">Event Log</div>
+      <div id="log" class="log"></div>
+    </div>
+
+    <div style="margin-top:10px" class="footer">
+      Save this file and open in a modern browser. This demo animates a precomputed sequence of memory events
+      for three curated C++ examples.
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="area">
+      <div class="pane" style="flex:0 0 44%">
+        <div class="title">Stack (top at top)</div>
+        <div id="stackArea" class="stackList"></div>
+      </div>
+
+      <div class="pane" style="flex:0 0 48%">
+        <div class="title">Heap</div>
+        <div id="heapArea"></div>
+        <svg id="svgArrows"></svg>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;">
+      <div style="flex:1">
+        <div class="title small">Timeline (click event to jump)</div>
+        <div id="timeline" class="codeBox" style="max-height:140px;cursor:pointer"></div>
+      </div>
+      <div style="width:260px">
+        <div class="title small">State summary</div>
+        <div id="summary" class="codeBox" style="max-height:140px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+  Fixed demo with three curated programs: prog1, prog2, prog3.
+  The engine plays a precomputed array of "events". prog3 demonstrates RAII and unique_ptr behavior.
+*/
+
+// ------ Example programs (displayed as code) ------
+const programs = {
+  prog1: {
+    name: "Pointers + functions + recursion (prog1)",
+    code: `#include <iostream>
+
+void modify(int* p) {
+    *p = *p + 10;
+}
+
+int sum(int a, int b) {
+    int result = a + b;
+    return result;
+}
+
+int recursive(int n) {
+    if (n == 0) return 1;
+    return n * recursive(n - 1);
+}
+
+int main() {
+    int x = 5;                // stack
+    int* ptr = new int(20);   // heap allocation
+    modify(ptr);              // pointer passed to another function
+
+    int y = sum(x, *ptr);     // function call with value + dereference
+
+    int fact = recursive(3);  // recursion producing stack frames
+
+    delete ptr;               // heap free
+    return 0;
+}`,
+    timeline: [
+      {type:'start', text:'Program start'},
+      {type:'push', frame:'main'},
+      {type:'var', frame:'main', name:'x', value:5},
+      {type:'alloc', addrSymbol:'H1', size:1, value:20},
+      {type:'var', frame:'main', name:'ptr', valueSymbol:'H1'},
+      {type:'call', from:'main', to:'modify'},
+      {type:'push', frame:'modify'},
+      {type:'var', frame:'modify', name:'p', valueSymbol:'H1'},
+      {type:'heapUpdate', addrSymbol:'H1', value:30, text:'*p = *p + 10 (20 -> 30)'},
+      {type:'pop', frame:'modify'},
+      {type:'call', from:'main', to:'sum'},
+      {type:'push', frame:'sum'},
+      {type:'var', frame:'sum', name:'a', value:5},
+      {type:'var', frame:'sum', name:'b', valueSymbol:'H1'},
+      {type:'var', frame:'sum', name:'result', value:35},
+      {type:'ret', from:'sum', to:'main', retval:35},
+      {type:'var', frame:'main', name:'y', value:35},
+      // recursion
+      {type:'call', from:'main', to:'recursive', arg:3},
+      {type:'push', frame:'recursive(3)', locals:[{name:'n',value:3}]},
+      {type:'push', frame:'recursive(2)', locals:[{name:'n',value:2}]},
+      {type:'push', frame:'recursive(1)', locals:[{name:'n',value:1}]},
+      {type:'push', frame:'recursive(0)', locals:[{name:'n',value:0}]},
+      {type:'ret', from:'recursive(0)', to:'recursive(1)', retval:1},
+      {type:'ret', from:'recursive(1)', to:'recursive(2)', retval:1},
+      {type:'ret', from:'recursive(2)', to:'recursive(3)', retval:2},
+      {type:'ret', from:'recursive(3)', to:'main', retval:6},
+      {type:'var', frame:'main', name:'fact', value:6},
+      {type:'free', addrSymbol:'H1'},
+      {type:'pop', frame:'main'},
+      {type:'end', text:'Program exit'}
+    ]
+  },
+
+  prog2: {
+    name: "Dynamic array + pointer arithmetic (prog2)",
+    code: `#include <iostream>
+
+void process(int arr[], int n) {
+    arr[1] = arr[1] + 5;
+}
+
+int main() {
+    int a = 2;
+    int* arr = new int[3];
+    arr[0] = 10; arr[1] = 20; arr[2] = 30;
+    process(arr, 3);
+    // show pointer arithmetic example
+    int second = *(arr + 1);
+    delete[] arr;
+    return 0;
+}`,
+    timeline: [
+      {type:'start', text:'Program start'},
+      {type:'push', frame:'main'},
+      {type:'var', frame:'main', name:'a', value:2},
+      {type:'alloc', addrSymbol:'H1', size:3, value:[10,20,30]},
+      {type:'var', frame:'main', name:'arr', valueSymbol:'H1'},
+      {type:'call', from:'main', to:'process'},
+      {type:'push', frame:'process'},
+      {type:'var', frame:'process', name:'arr', valueSymbol:'H1'},
+      {type:'var', frame:'process', name:'n', value:3},
+      {type:'heapUpdate', addrSymbol:'H1', index:1, value:25, text:'arr[1] = arr[1] + 5 (20 -> 25)'},
+      {type:'pop', frame:'process'},
+      {type:'var', frame:'main', name:'second', valueSymbolIndex:{symbol:'H1', index:1}},
+      {type:'free', addrSymbol:'H1'},
+      {type:'pop', frame:'main'},
+      {type:'end', text:'Program exit'}
+    ]
+  },
+
+  prog3: {
+    name: "RAII & unique_ptr (prog3)",
+    code: `#include <iostream>
+#include <memory>
+
+struct Buffer {
+    int* data;
+    size_t size;
+    Buffer(size_t n) : size(n) {
+        data = new int[n];
+        std::cout << "Buffer ctor: allocated data[" << n << "] at " << data << std::endl;
+    }
+    void set(size_t i, int v) { if (i < size) data[i] = v; }
+    int get(size_t i) const { if (i < size) return data[i]; return 0; }
+    ~Buffer() { std::cout << "Buffer dtor: freeing data at " << data << std::endl; delete[] data; }
+};
+
+int main() {
+    Buffer* b = new Buffer(3);
+    b->set(0,10); b->set(1,20); b->set(2,30);
+    delete b;
+
+    {
+        std::unique_ptr<Buffer> ub = std::make_unique<Buffer>(2);
+        ub->set(0,100);
+        ub->set(1,200);
+    }
+
+    return 0;
+}`,
+    timeline: [
+      {type:'start', text:'Program start'},
+      {type:'push', frame:'main'},
+      // manual new/delete example
+      {type:'alloc', addrSymbol:'H_obj1', size:1, value:'Buffer object (owns H_buf1)'},
+      {type:'alloc', addrSymbol:'H_buf1', size:3, value:[0,0,0]},
+      {type:'var', frame:'main', name:'b', valueSymbol:'H_obj1'},
+      {type:'heapUpdate', addrSymbol:'H_buf1', index:0, value:10, text:'b->data[0] = 10'},
+      {type:'heapUpdate', addrSymbol:'H_buf1', index:1, value:20, text:'b->data[1] = 20'},
+      {type:'heapUpdate', addrSymbol:'H_buf1', index:2, value:30, text:'b->data[2] = 30'},
+      {type:'free', addrSymbol:'H_buf1', text:'Buffer destructor frees internal array'},
+      {type:'free', addrSymbol:'H_obj1', text:'Buffer object freed'},
+      // unique_ptr example
+      {type:'alloc', addrSymbol:'H_obj2', size:1, value:'Buffer object (owns H_buf2)'},
+      {type:'alloc', addrSymbol:'H_buf2', size:2, value:[0,0]},
+      {type:'var', frame:'main', name:'ub', valueSymbol:'H_obj2'},
+      {type:'heapUpdate', addrSymbol:'H_buf2', index:0, value:100, text:'ub->data[0] = 100'},
+      {type:'heapUpdate', addrSymbol:'H_buf2', index:1, value:200, text:'ub->data[1] = 200'},
+      {type:'free', addrSymbol:'H_buf2', text:'unique_ptr destructor frees internal array'},
+      {type:'free', addrSymbol:'H_obj2', text:'unique_ptr freed Buffer object'},
+      {type:'pop', frame:'main'},
+      {type:'end', text:'Program exit'}
+    ]
+  }
+};
+
+// ------- Models -------
+let stack = [];   // array of frames (bottom->top)
+let heap = [];    // array of blocks {addr, symbol, size, value}
+let symbolToAddr = {}; // map symbolic IDs like H1 -> actual 'H123'
+let eventIndex = -1;
+let playing = false;
+let playTimer = null;
+
+const stackArea = document.getElementById('stackArea');
+const heapArea = document.getElementById('heapArea');
+const svgArrows = document.getElementById('svgArrows');
+const logEl = document.getElementById('log');
+const timelineEl = document.getElementById('timeline');
+const summaryEl = document.getElementById('summary');
+const codeBox = document.getElementById('codeBox');
+
+function findHeapByAddrOrSymbol(addrOrSymbol){
+  if(!addrOrSymbol) return undefined;
+  const real = symbolToAddr[addrOrSymbol] || addrOrSymbol;
+  return heap.find(h => h.addr === real || h.symbol === addrOrSymbol);
+}
+function log(msg){ const d=document.createElement('div'); d.textContent='» '+msg; logEl.prepend(d); }
+function setCode(text){ codeBox.textContent = text; }
+
+// ------ Render functions ------
+function render(){
+  stackArea.innerHTML='';
+  for(let i=stack.length-1;i>=0;i--){
+    const f = stack[i];
+    const fdiv = document.createElement('div');
+    fdiv.className='frame';
+    fdiv.id = 'frame-'+sanitizeId(f.name)+'_'+i;
+    const head = document.createElement('div'); head.className='fhead';
+    const title = document.createElement('div'); title.textContent = f.name;
+    const addr = document.createElement('div'); addr.className='small'; addr.textContent = f.bp || '';
+    head.appendChild(title); head.appendChild(addr);
+    fdiv.appendChild(head);
+    (f.vars||[]).forEach(v=>{
+      const vdiv = document.createElement('div');
+      vdiv.className='var';
+      vdiv.id = `var-${sanitizeId(f.name)}-${sanitizeId(v.name)}`;
+      vdiv.innerHTML = `<div>${v.name}</div><div>${v.repr}</div>`;
+      fdiv.appendChild(vdiv);
+    });
+    stackArea.appendChild(fdiv);
+    requestAnimationFrame(()=>{ fdiv.style.transform='translateY(0)'; fdiv.style.opacity='1'; });
+  }
+
+  heapArea.innerHTML='';
+  heap.forEach((b,idx)=>{
+    const hb = document.createElement('div');
+    hb.className='heapBlock';
+    hb.id = 'heap-'+b.addr;
+    const left = document.createElement('div');
+    left.innerHTML = `<strong>${b.symbol || b.addr}</strong> <span style="color:var(--muted)">${b.addr}</span> ${b.size>1?('['+b.size+']'):''}`;
+    const right = document.createElement('div'); right.style.fontFamily='monospace';
+    right.textContent = (Array.isArray(b.value)?JSON.stringify(b.value):b.value);
+    hb.appendChild(left); hb.appendChild(right);
+    heapArea.appendChild(hb);
+  });
+
+  drawPointers();
+  updateSummary();
+}
+
+function sanitizeId(s){ return String(s).replace(/\W/g,'_'); }
+
+function updateSummary(){
+  let s = '';
+  s += 'Stack frames: ' + stack.length + '\n';
+  s += 'Heap blocks: ' + heap.length + '\n';
+  heap.forEach(h=> s += `${h.symbol || h.addr}: ${h.size} ${Array.isArray(h.value)?JSON.stringify(h.value):h.value}\n`);
+  summaryEl.textContent = s;
+}
+
+function drawPointers(){
+  svgArrows.innerHTML='';
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const frames = Array.from(stackArea.children);
+  frames.forEach((frameEl)=>{
+    const vars = frameEl.querySelectorAll('.var');
+    vars.forEach(vEl=>{
+      const text = vEl.textContent || '';
+      const m = text.match(/->(H\d+)(?:\[(\d+)\])?/);
+      if(m){
+        const sym = m[1];
+        const idx = m[2] ? parseInt(m[2],10) : null;
+        const real = symbolToAddr[sym];
+        if(!real) return;
+        const target = document.getElementById('heap-'+real);
+        if(!target) return;
+        const fromRect = vEl.getBoundingClientRect();
+        const toRect = target.getBoundingClientRect();
+        const svgRect = svgArrows.getBoundingClientRect();
+        const x1 = fromRect.right - svgRect.left - 6;
+        const y1 = fromRect.top - svgRect.top + fromRect.height/2;
+        const x2 = toRect.left - svgRect.left + 8;
+        const y2 = toRect.top - svgRect.top + toRect.height/2;
+        const path = document.createElementNS(svgNS,'path');
+        const d = `M ${x1} ${y1} C ${x1+40} ${y1} ${x2-40} ${y2} ${x2} ${y2}`;
+        path.setAttribute('d',d);
+        path.setAttribute('stroke','#60a5fa');
+        path.setAttribute('stroke-width','2');
+        path.setAttribute('fill','none');
+        path.setAttribute('marker-end','url(#arrow)');
+        svgArrows.appendChild(path);
+      }
+    });
+  });
+  const defs = document.createElementNS(svgNS,'defs');
+  defs.innerHTML = `<marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#60a5fa"/></marker>`;
+  svgArrows.appendChild(defs);
+}
+
+// ------- Event engine -------
+function resetState(){
+  stack = [];
+  heap = [];
+  symbolToAddr = {};
+  eventIndex = -1;
+  logEl.innerHTML = '';
+}
+
+function pushFrame(name){
+  const frame = {name, bp:randomAddr(), vars:[]};
+  stack.push(frame);
+  log('push frame '+name);
+  render();
+}
+
+function pushFrameWithLocals(name, locals){
+  const frame = {name, bp:randomAddr(), vars: locals.map(l=>({name:l.name, repr:String(l.value)}))};
+  stack.push(frame);
+  log('push frame '+name);
+  render();
+}
+
+function popFrameByName(name){
+  if(stack.length===0){ log('stack empty when popping '+name); return; }
+  for(let i=stack.length-1;i>=0;i--){
+    const fn = stack[i].name;
+    stack.pop();
+    log('popped '+fn);
+    if(fn === name) { render(); return; }
+  }
+  render();
+}
+
+function declareVar(frameName, name, valueRepr){
+  let f = null;
+  for(let i=stack.length-1;i>=0;i--){ if(stack[i].name === frameName){ f = stack[i]; break; } }
+  if(!f) { f = stack[stack.length-1]; }
+  if(!f) return;
+  const repr = (typeof valueRepr === 'object' ? (Array.isArray(valueRepr)?JSON.stringify(valueRepr):String(valueRepr)) : String(valueRepr));
+  f.vars.push({name, repr});
+  setVarUpdatedVisual(f.name, name);
+  log(`declare ${name} = ${repr} in ${f.name}`);
+  render();
+}
+
+function updateVar(frameName, name, newVal){
+  let f = null;
+  for(let i=stack.length-1;i>=0;i--){ if(stack[i].name === frameName){ f = stack[i]; break; } }
+  if(!f) f = stack[stack.length-1];
+  if(!f) return;
+  const v = f.vars.find(v=>v.name===name);
+  if(v){ v.repr = String(newVal); setVarUpdatedVisual(f.name, name); log(`update ${name} = ${newVal} in ${f.name}`); render(); }
+  else { declareVar(frameName, name, newVal); }
+}
+
+function setVarUpdatedVisual(frameName, varName){
+  setTimeout(()=> {
+    const id = `var-${sanitizeId(frameName)}-${sanitizeId(varName)}`;
+    const el = document.getElementById(id);
+    if(el) el.classList.add('updated');
+    setTimeout(()=>{ if(el) el.classList.remove('updated'); },700);
+  },60);
+}
+
+function allocHeapWithSymbol(symbol, size, value){
+  const real = randomAddr();
+  symbolToAddr[symbol] = real;
+  heap.push({addr:real, symbol, size, value});
+  log(`alloc ${symbol} -> ${real} size=${size}`);
+  render();
+}
+
+function freeHeapBySymbol(symbol){
+  const real = symbolToAddr[symbol];
+  if(!real){ log('free: symbol not found '+symbol); return; }
+  const idx = heap.findIndex(h=>h.addr===real);
+  if(idx>=0){ heap.splice(idx,1); log(`free ${symbol} -> ${real}`); delete symbolToAddr[symbol]; render(); }
+}
+
+function updateHeapBySymbol(symbol, newVal, index){
+  const real = symbolToAddr[symbol];
+  if(!real){ log('heap update: symbol not found '+symbol); return; }
+  const b = heap.find(h=>h.addr===real);
+  if(!b) return;
+  if(typeof index === 'number' && Array.isArray(b.value)){
+    b.value[index] = newVal;
+  } else {
+    b.value = newVal;
+  }
+  log(`heap ${symbol}(${real}) updated -> ${Array.isArray(b.value)?JSON.stringify(b.value):b.value}`);
+  render();
+}
+
+function randomAddr(){ return 'H'+Math.floor(Math.random()*900+100); }
+
+// ----- Play control -----
+function loadProgram(key){
+  const prog = programs[key];
+  resetState();
+  setCode(prog.code);
+  render();
+  timelineEl.innerHTML = '';
+  prog.timeline.forEach((ev,i)=>{
+    const line = document.createElement('div');
+    line.textContent = (i+1)+'. '+(ev.text || `${ev.type} ${ev.frame||ev.addrSymbol||''}`);
+    line.dataset.idx = i;
+    line.style.padding = '6px 4px';
+    line.style.borderBottom = '1px solid rgba(255,255,255,0.02)';
+    timelineEl.appendChild(line);
+    line.onclick = ()=>{ jumpTo(i); };
+  });
+  currentProg = prog;
+}
+
+let currentProg = programs['prog1'];
+
+function stepForward(){
+  const t = currentProg.timeline;
+  if(eventIndex >= t.length-1){ playing=false; return; }
+  eventIndex++;
+  const ev = t[eventIndex];
+  handleEvent(ev);
+  highlightTimeline(eventIndex);
+}
+
+function stepBackward(){
+  const target = Math.max(-1, eventIndex-1);
+  eventIndex = -1;
+  resetState();
+  render();
+  for(let i=0;i<=target;i++){ handleEvent(currentProg.timeline[i], true); eventIndex = i; }
+  highlightTimeline(eventIndex);
+}
+
+function highlightTimeline(idx){
+  Array.from(timelineEl.children).forEach((c,i)=>{ c.style.background = (i===idx? 'linear-gradient(90deg,#072a42,#021726)': 'transparent'); });
+}
+
+function jumpTo(idx){
+  eventIndex = -1;
+  resetState();
+  render();
+  for(let i=0;i<=idx;i++){ handleEvent(currentProg.timeline[i], true); eventIndex = i; }
+  highlightTimeline(eventIndex);
+}
+
+function handleEvent(ev, silentReplay=false){
+  switch(ev.type){
+    case 'start': if(!silentReplay) log(ev.text || 'start'); break;
+    case 'push': pushFrame(ev.frame); break;
+    case 'pushWithLocals': pushFrameWithLocals(ev.frame, ev.locals); break;
+    case 'pop': popFrameByName(ev.frame); break;
+    case 'var': declareVar(ev.frame, ev.name, ev.value); break;
+    case 'alloc': {
+      allocHeapWithSymbol(ev.addrSymbol || ev.addr, ev.size || 1, ev.value===undefined? (ev.size>1? new Array(ev.size).fill(null) : null) : ev.value);
+      break;
+    }
+    case 'free': {
+      freeHeapBySymbol(ev.addrSymbol || ev.addr);
+      break;
+    }
+    case 'heapUpdate': {
+      if(ev.addrSymbol) {
+        updateHeapBySymbol(ev.addrSymbol, ev.value, ev.index);
+      } else {
+        updateHeapBySymbol(ev.addr, ev.value, ev.index);
+      }
+      break;
+    }
+    case 'call': if(!silentReplay) log('call '+ev.to+' from '+(ev.from||'')); break;
+    case 'ret':
+      popFrameByName(ev.from);
+      if(ev.retval && ev.to){ log(`return ${ev.retval} from ${ev.from} to ${ev.to}`); } else { if(!silentReplay) log(`return ${ev.retval || ''} from ${ev.from}`); }
+      break;
+    case 'end': if(!silentReplay) log(ev.text||'end'); break;
+    default:
+      if(ev.locals) pushFrameWithLocals(ev.frame, ev.locals);
+      else log('unknown event '+JSON.stringify(ev));
+  }
+}
+
+function play(){ if(playing) return; playing = true; playTimer = setInterval(()=>{ const t = currentProg.timeline; if(eventIndex >= t.length-1){ pause(); return; } stepForward(); }, 700); }
+function pause(){ playing = false; if(playTimer) { clearInterval(playTimer); playTimer=null; } }
+
+// hook up UI
+document.getElementById('programSelect').onchange = (e)=>{ const key = e.target.value; currentProg = programs[key]; loadProgram(key); eventIndex = -1; resetState(); render(); };
+document.getElementById('playBtn').onclick = ()=>{ play(); };
+document.getElementById('pauseBtn').onclick = ()=>{ pause(); };
+document.getElementById('stepFwd').onclick = ()=>{ pause(); stepForward(); };
+document.getElementById('stepBack').onclick = ()=>{ pause(); stepBackward(); };
+
+loadProgram('prog1');
+
+</script>
+</body>
+</html>
+
