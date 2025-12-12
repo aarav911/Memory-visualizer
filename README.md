@@ -28,8 +28,8 @@ This toolkit is a teaching aid to explain:
 
   Note: this is a purely hard coded animation, and wont work for other cpp examples.
 
-  ###Future ambitions
-  If i can create something that take in a general cpp program, and allow me to visualize everything, ie variables, scopes, pointers, heaps and stacks, and other advanced concepts, then THAT WILL BE VERY COOL. 
+###Future ambitions
+If i can create something that take in a general cpp program, and allow me to visualize everything, ie variables, scopes, pointers, heaps and stacks, and other advanced concepts, then THAT WILL BE VERY COOL. 
 
 License
 MIT
