@@ -12,7 +12,7 @@ int sum(int a, int b) {
 
 int recursive(int n) {
     if (n == 0) return 1;
-    return n * recursive(n - 1);
+    return n*recursive(n-1);
 }
 
 int main() {
@@ -20,8 +20,7 @@ int main() {
     int* ptr = new int(20);   // heap allocation
     modify(ptr);              // pointer passed to another function
 
-    int y = sum(x, *ptr);     // function call with value + dereference
-
+    int y = sum(x, *ptr);     // function call with value + de reference
     int fact = recursive(3);  // recursion producing stack frames
 
     delete ptr;               // heap free
