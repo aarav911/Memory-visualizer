@@ -1,10 +1,10 @@
-# Memory Visualizer — Teaching Toolkit (single-file demos)
+# Memory Visualizer — Teaching Toolkit (minimalist single file visualization for cpp memory)
 
-This repo contains a small set of curated, single-file HTML+JS demos that visualize how memory (stack and heap),
-pointers, function calls and object lifetimes evolve for short C++ example programs.
+This repo contains a single-file HTML+JS demo that visualizes how memory (stack and heap),
+pointers, function calls and object lifetimes evolve for short C++ example programs, for teaching and visualization purposes.
 
 Included:
-- `memory-visualizer.html` — interactive visualizer (single-file) with sample controls and examples.
+- `memory-visualizer.html` — interactive visualizer (minimalist, single-file) with sample controls and examples.
 - `prog1.cpp` — pointers, functions, recursion (stack & heap interactions).
 - `prog2.cpp` — dynamic array, pointer arithmetic, function mutation.
 - `prog3.cpp` — RAII & smart pointer demo (object owns heap memory, destructor frees memory).
@@ -23,6 +23,11 @@ This toolkit is a teaching aid to explain:
 - pointer relationships and pointer arithmetic
 - recursion and function call lifetimes
 - RAII (destructors) and smart pointers (`std::unique_ptr`)
+
+  Note: this is a purely hard coded animation, and wont work for other cpp examples.
+
+  ###Future ambitions
+  If i can create something that take in a general cpp program, and allow me to visualize everything, ie variables, scopes, pointers, heaps and stacks, and other advanced concepts, then THAT WILL BE VERY COOL. 
 
 License
 MIT
