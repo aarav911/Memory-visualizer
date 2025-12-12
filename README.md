@@ -3,7 +3,7 @@
 This repo contains a single-file HTML+JS demo that visualizes how memory (stack and heap),
 pointers, function calls and object lifetimes evolve for short C++ example programs, for teaching and visualization purposes.
 
-Access the visualize: https://aarav911.github.io/Memory-visualizer/
+Access the visualizer: https://aarav911.github.io/Memory-visualizer/
 
 Included:
 - `memory-visualizer.html` — interactive visualizer (minimalist, single-file) with sample controls and examples.
